@@ -1,0 +1,7 @@
+name = Terms 1
+description = Terms and conditions
+core = 7.x
+package = PK People
+version = "7.x-1.x-dev"
+configure = admin/config/people/terms
+dependencies[] = firstclass1

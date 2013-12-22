@@ -1,0 +1,41 @@
+<?php
+
+/**
+ * Implements hook_schema().
+ */
+function terms1_schema() {
+    $schema['terms1_accepted'] = array(
+        'description' => 'Stores which version of terms has user accepted.',
+        'fields' => array(
+            'id' => array(
+                'type' => 'serial',
+                'not null' => TRUE,
+                'description' => 'The primary identifier.',
+            ),
+            'uid' => array(
+                'type' => 'int',
+                'not null' => TRUE,
+                'description' => 'The id of the user.',
+            ),
+            'terms_version' => array(
+                'type' => 'int',
+                'not null' => TRUE,
+                'description' => 'The accepted version of terms.',
+            ),
+            'time' => array(
+                'type' => 'int',
+                'not null' => TRUE,
+                'default' => '0',
+                'description' => 'When does user accepted it.',
+            ),
+        ),
+        'primary key' => array('id'),
+        'foreign keys' => array(
+            'uid' => array(
+                'table' => 'user',
+                'columns' => array('uid' => 'uid'),
+            ),
+        ),
+    );
+    return $schema;
+}

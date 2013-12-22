@@ -1,0 +1,218 @@
+<?php
+
+/**
+ * Implements hook_menu().
+ */
+function terms1_menu() {
+    $menu['admin/config/people/terms1'] = (new MenuItem1())
+                    ->setTitle('Terms and conditions 1')
+                    ->setPage('drupal_get_form', ['terms1_admin_form'])
+                    ->setAccess(NULL, 'administer terms1')
+                    ->setType(MENU_NORMAL_ITEM)
+            ->raw;
+    $menu['terms1'] = (new MenuItem1())
+                    ->setTitle('Terms and conditions')
+                    ->setPage('drupal_get_form', ['terms1_terms_form'])
+                    ->setAccess(TRUE)
+                    ->setType(MENU_NORMAL_ITEM)
+            ->raw;
+    return $menu;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function terms1_permission() {
+    return [
+        'administer terms1' => [
+            'title' => t('Administer terms1 module'),
+            'description' => t('Perform administration tasks for terms1.'),
+        ],
+    ];
+}
+
+/**
+ * @return Terms1Service
+ */
+function terms1_service() {
+    $service = &drupal_static(__FUNCTION__, NULL);
+    if (!$service) {
+        $service = new Terms1Service();
+    }
+    return $service;
+}
+
+/**
+ * @property String $terms1_text
+ * @property String $terms1_last_version
+ * @property String $terms1_accept_text
+ * @property String $terms1_sorry_text
+ */
+class Terms1Config extends Config1 {
+
+    protected function defaults() {
+        $defaults = parent::defaults();
+        $defaults['terms1_last_version'] = 0;
+        $defaults['accept_text'] = t('I agree');
+        return $defaults;
+    }
+
+}
+
+/**
+ * Implements hook_entity_info().
+ */
+function terms1_entity_info() {
+    return [
+        'terms1_accepted' => [
+            'label' => t('Associative list of terms acceptances'),
+            'base table' => 'terms1_accepted',
+            'entity keys' => [
+                'id' => 'id',
+            ],
+        ],
+    ];
+}
+
+class Terms1Service {
+
+    public $config;
+    private static $tableName = 'terms1_accepted';
+
+    public function __construct() {
+        $this->config = new Terms1Config();
+    }
+
+    private function getLastAcceptedVersion($uid) {
+        $result = db_select(self::$tableName, 'ta')
+                ->fields('ta')
+                ->condition('uid', $uid)
+                ->execute()
+                ->fetch();
+        return $result;
+    }
+
+    public function check($uid) {
+        $result = $this->getLastAcceptedVersion($uid);
+        if (!$result) {
+            return FALSE;
+        }
+        $lastAcceptedVersion = $result->terms_version;
+        return $lastAcceptedVersion >= $this->config->terms1_last_version;
+    }
+
+    public function accept($uid) {
+        $lastAcceptedVersion = $this->getLastAcceptedVersion($uid);
+        $lastVersion = $this->config->terms1_last_version;
+        $data = [
+            'uid' => $uid,
+            'terms_version' => $lastVersion,
+            'time' => REQUEST_TIME
+        ];
+        if ($lastAcceptedVersion) {
+            db_update(self::$tableName)
+                    ->condition('uid', $uid)
+                    ->fields($data)
+                    ->execute();
+        } else {
+            db_insert(self::$tableName)
+                    ->fields($data)
+                    ->execute();
+        }
+    }
+
+}
+
+function _terms1_init_check() {
+    global $user;
+    if (php_sapi_name() == 'cli') { // probably a drush call
+        return;
+    }
+    if ($user->uid == 0 || $user->uid == 1) {
+        return;
+    }
+    if (!empty($_POST)) {
+        return;
+    }
+    if (arg(0) == 'terms1') {
+        return;
+    }
+    $service = terms1_service();
+    if ($service->check($user->uid)) {
+        return;
+    }
+    drupal_goto('terms1', ['query' => drupal_get_destination()]);
+}
+
+/**
+ * Implements hook_init();
+ */
+function terms1_init() {
+    _terms1_init_check();
+}
+
+function terms1_admin_form($form, &$form_state) {
+    $service = terms1_service();
+    $config = $service->config;
+    $form = [
+        'terms1_sorry_text' => (new FormTextarea1)
+                ->setTitle(t('"Sorry for disturbing" text'))
+                ->setDescription(t('Some text like "<em>We are sorry for disturbing you, but this is important.</em>"'))
+                ->setDefaultValue($config->terms1_sorry_text)
+        ->raw,
+        'terms1_text' => (new FormTextarea1)
+                ->setTitle(t('Text of terms and conditions'))
+                ->setDefaultValue($config->terms1_text)
+                ->setRows(10)
+        ->raw,
+        'terms1_accept_text' => (new FormTextfield1)
+                ->setTitle(t('Text of accept button'))
+                ->setDefaultValue($config->terms1_accept_text)
+        ->raw,
+        'actions' => [
+            'submit' => (new FormSubmit1)
+                    ->setValue(t('Only update text'))
+            ->raw,
+            'submit_new_version' => (new FormSubmit1)
+                    ->setValue(t('Require new acceptance for existing users'))
+            ->raw,
+        ],
+    ];
+    $form_state['redirect'][] = drupal_get_destination();
+    return $form;
+}
+
+function terms1_admin_form_submit($form, &$form_state) {
+    $values = $form_state['values'];
+    $service = terms1_service();
+    $config = $service->config;
+    $config->terms1_accept_text = $values['terms1_accept_text'];
+    $config->terms1_text = $values['terms1_text'];
+    $config->terms1_sorry_text = $values['terms1_sorry_text'];
+    drupal_set_message(t('Settings saved.'));
+    if ($values['op'] == $values['submit_new_version']) {
+        $config->terms1_last_version = $config->terms1_last_version + 1;
+        drupal_set_message(t('Terms version increased.'));
+    }
+}
+
+function terms1_terms_form($form, &$form_state) {
+    $service = terms1_service();
+    $config = $service->config;
+    $form['terms1_text'] = (new FormTextarea1)
+                    ->setTitle($config->terms1_sorry_text)
+                    ->setDefaultValue($config->terms1_text)
+                    ->setRows(10)
+                    ->setDisabled(TRUE)
+            ->raw;
+    $form['actions']['submit'] = (new FormSubmit1)
+                    ->setValue(t($config->terms1_accept_text))
+            ->raw;
+    return $form;
+}
+
+function terms1_terms_form_submit($form, &$form_state) {
+    global $user;
+    $service = terms1_service();
+    $service->accept($user->uid);
+}
